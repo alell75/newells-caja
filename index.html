@@ -353,7 +353,7 @@ function showPrompt({title='', message='', inputType='text'}, onSubmit){ showMod
 
 /* ---------- Bootstrap: leer blobId del link, o mostrar pantalla de configuración inicial ---------- */
 function getBlobIdFromHash(){
-  const m = location.hash.match(/blob=([a-zA-Z0-9]+)/);
+  const m = location.hash.match(/blob=([a-zA-Z0-9-]+)/);
   return m ? m[1] : null;
 }
 
