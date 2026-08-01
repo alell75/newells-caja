@@ -516,7 +516,7 @@ function renderRoster(){
     const status = (state.roster.payments[name] || {})[monthKey];
     let cls, label;
     if(status === true){ cls='paid'; label='✓ Pagado'; paidCount++; applicable++; }
-    else if(status === false){ cls='unpaid'; label='Falta pagar'; applicable++; }
+    else if(status === false || status === undefined){ cls='unpaid'; label='Falta pagar'; applicable++; }
     else{ cls='na'; label='— No aplica'; }
     const disabledAttr = isAdmin ? '' : 'disabled';
     return `
