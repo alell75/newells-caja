@@ -84,6 +84,8 @@
   .entry .saldo-tag{ font-size:11px; color:rgba(245,239,233,0.4); margin-top:2px; }
   .entry .del{ background:none; border:none; color:rgba(245,239,233,0.3); font-size:16px; cursor:pointer; margin-left:8px; padding:2px 6px; }
   .entry .del:hover{ color:var(--red-soft); }
+  .entry .hide-toggle{ background:none; border:none; font-size:14px; cursor:pointer; margin-left:6px; padding:2px 4px; opacity:.6; }
+  .entry .hide-toggle:hover{ opacity:1; }
   .empty{ text-align:center; color:rgba(245,239,233,0.4); font-size:13.5px; padding:20px; }
   .loading{ text-align:center; color:rgba(245,239,233,0.5); padding:30px; font-size:13.5px;}
   .notice{ font-size:12px; text-align:center; color:rgba(245,239,233,0.4); margin-top:26px; line-height:1.5; }
@@ -216,9 +218,15 @@
 
   <div class="history-head">
     <h2>Historial</h2>
-    <button class="reset-link" id="resetBtn">Reiniciar datos</button>
+    <div style="display:flex; gap:12px; align-items:baseline;">
+      <button class="reset-link" id="toggleHiddenBtn" style="display:none;">Ver ocultos</button>
+      <button class="reset-link" id="resetBtn">Reiniciar datos</button>
+    </div>
   </div>
   <div id="lista"><div class="loading">Cargando movimientos…</div></div>
+  <div id="listaOcultos" style="display:none; margin-top:14px;">
+    <div class="history-head"><h2 style="font-size:16px;">Movimientos ocultos</h2></div>
+  </div>
   </div>
 
   <div class="tabpanel" id="tab-abono">
@@ -255,8 +263,8 @@
   </div>
 
   <div class="notice">
-    Los datos se guardan en un almacenamiento compartido externo: cualquiera con el link los ve. Solo los administradores (con PIN) pueden cargar movimientos o marcar pagos.<br/>
-    Saldo inicial: 246 € trasladado del Excel al 27/07. Abono: 20 €/mes por jugador.
+    Los datos se guardan en un almacenamiento compartido externo: cualquiera con el link los ve, sin necesidad de cuenta de Claude. Solo los administradores (con PIN) pueden cargar movimientos o marcar pagos.<br/>
+    Saldo inicial: 251 € trasladado del Excel al 22/06. Abono: 20 €/mes por jugador.
   </div>
   </div>
 </div>
@@ -283,7 +291,7 @@ const MONTH_LABELS = {1:'Enero',2:'Febrero',3:'Marzo',4:'Abril',5:'Mayo',6:'Juni
 
 const DEFAULT_STATE = {
   movimientos: [
-    { id: 'seed-1', fecha: '2026-06-22', concepto: 'Saldo trasladado del Excel', tipo: 'ingreso', monto: 246 }
+    { id: 'seed-1', fecha: '2026-06-22', concepto: 'Saldo trasladado del Excel', tipo: 'ingreso', monto: 251 }
   ],
   roster: {
     players: ['Adrian','Ale','Andres','Gustavo','Hamid','Julio','Luis','Manolo','Marcelo','Pablo','Pela','Albano','Ruben','Seba','Toto','Pepe'],
@@ -597,6 +605,27 @@ function removePlayer(name){
   }, 'Quitar jugador');
 }
 
+function entryRowHtml(m, hiddenSection){
+  const toggleBtn = isAdmin
+    ? `<button class="hide-toggle" data-id="${m.id}" title="${hiddenSection ? 'Mostrar' : 'Ocultar'}">${hiddenSection ? '👁️' : '🙈'}</button>`
+    : '';
+  const delBtn = isAdmin ? `<button class="del" data-id="${m.id}" title="Eliminar">✕</button>` : '';
+  return `
+    <div class="entry">
+      <div class="left">
+        <div class="concepto">${escapeHtml(m.concepto || '(sin concepto)')}</div>
+        <div class="fecha">${formatFecha(m.fecha)}</div>
+      </div>
+      <div class="right" style="display:flex; align-items:center;">
+        <div>
+          <div class="monto ${m.tipo === 'gasto' ? 'neg' : 'pos'}">${m.tipo === 'gasto' ? '-' : '+'}${fmt(Math.abs(m.monto))} €</div>
+          <div class="saldo-tag">saldo: ${fmt(m.saldoTras)} €</div>
+        </div>
+        ${toggleBtn}${delBtn}
+      </div>
+    </div>`;
+}
+
 function render(){
   const sorted = [...state.movimientos].sort((a,b) => (a.fecha || '').localeCompare(b.fecha || '') || 0);
   let running = 0;
@@ -613,31 +642,53 @@ function render(){
   const last = withBalance[withBalance.length - 1];
   $('ultimaActualizacion').textContent = last ? 'Último movimiento: ' + formatFecha(last.fecha) : '';
 
-  const lista = $('lista');
-  if(withBalance.length === 0){
-    lista.innerHTML = '<div class="empty">Todavía no hay movimientos cargados.</div>';
-    return;
-  }
-  lista.innerHTML = [...withBalance].reverse().map(m => `
-    <div class="entry">
-      <div class="left">
-        <div class="concepto">${escapeHtml(m.concepto || '(sin concepto)')}</div>
-        <div class="fecha">${formatFecha(m.fecha)}</div>
-      </div>
-      <div class="right" style="display:flex; align-items:center;">
-        <div>
-          <div class="monto ${m.tipo === 'gasto' ? 'neg' : 'pos'}">${m.tipo === 'gasto' ? '-' : '+'}${fmt(Math.abs(m.monto))} €</div>
-          <div class="saldo-tag">saldo: ${fmt(m.saldoTras)} €</div>
-        </div>
-        ${isAdmin ? `<button class="del" data-id="${m.id}" title="Eliminar">✕</button>` : ''}
-      </div>
-    </div>
-  `).join('');
+  const visibles = withBalance.filter(m => !m.oculto);
+  const ocultos = withBalance.filter(m => m.oculto);
 
-  if(isAdmin){
-    lista.querySelectorAll('.del').forEach(btn => btn.addEventListener('click', () => deleteEntry(btn.dataset.id)));
+  const lista = $('lista');
+  if(visibles.length === 0){
+    lista.innerHTML = '<div class="empty">Todavía no hay movimientos cargados.</div>';
+  }else{
+    lista.innerHTML = [...visibles].reverse().map(m => entryRowHtml(m, false)).join('');
+  }
+  lista.querySelectorAll('.del').forEach(btn => btn.addEventListener('click', () => deleteEntry(btn.dataset.id)));
+  lista.querySelectorAll('.hide-toggle').forEach(btn => btn.addEventListener('click', () => toggleHidden(btn.dataset.id)));
+
+  const toggleBtn = $('toggleHiddenBtn');
+  const listaOcultos = $('listaOcultos');
+  if(isAdmin && ocultos.length > 0){
+    toggleBtn.style.display = 'inline';
+    toggleBtn.textContent = (listaOcultos.dataset.open === 'true' ? 'Ocultar lista de ocultos' : 'Ver ocultos') + ` (${ocultos.length})`;
+  }else{
+    toggleBtn.style.display = 'none';
+    listaOcultos.style.display = 'none';
+    listaOcultos.dataset.open = 'false';
+  }
+
+  if(listaOcultos.dataset.open === 'true'){
+    listaOcultos.innerHTML = '<div class="history-head"><h2 style="font-size:16px;">Movimientos ocultos</h2></div>' +
+      [...ocultos].reverse().map(m => entryRowHtml(m, true)).join('');
+    listaOcultos.querySelectorAll('.del').forEach(btn => btn.addEventListener('click', () => deleteEntry(btn.dataset.id)));
+    listaOcultos.querySelectorAll('.hide-toggle').forEach(btn => btn.addEventListener('click', () => toggleHidden(btn.dataset.id)));
   }
 }
+
+async function toggleHidden(id){
+  if(!isAdmin) return;
+  const mv = state.movimientos.find(m => m.id === id);
+  if(!mv) return;
+  mv.oculto = !mv.oculto;
+  render();
+  await saveState();
+}
+
+$('toggleHiddenBtn').addEventListener('click', () => {
+  const listaOcultos = $('listaOcultos');
+  const open = listaOcultos.dataset.open === 'true';
+  listaOcultos.dataset.open = open ? 'false' : 'true';
+  listaOcultos.style.display = open ? 'none' : 'block';
+  render();
+});
 
 function formatFecha(f){
   if(!f) return '';
