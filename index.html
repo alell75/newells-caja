@@ -243,11 +243,14 @@
     <h3>Configuración de administradores</h3>
     <div class="settings-row">
       <input type="text" id="admin1Name" placeholder="Nombre admin 1" />
-      <input type="text" id="admin2Name" placeholder="Nombre admin 2" />
+      <input type="password" id="admin1Pin" placeholder="PIN admin 1" />
     </div>
     <div class="settings-row">
-      <input type="text" id="newPin" placeholder="Nuevo PIN de acceso" />
-      <button type="button" id="savePinBtn">Guardar</button>
+      <input type="text" id="admin2Name" placeholder="Nombre admin 2" />
+      <input type="password" id="admin2Pin" placeholder="PIN admin 2" />
+    </div>
+    <div class="settings-row">
+      <button type="button" id="savePinBtn" style="flex:1;">Guardar</button>
     </div>
   </div>
 
@@ -304,12 +307,13 @@ const DEFAULT_STATE = {
     },
     links: {}
   },
-  adminConfig: { pin: '2026', names: ['Administrador 1', 'Administrador 2'] }
+  adminConfig: { admins: [ { name: 'Administrador 1', pin: '2026' }, { name: 'Administrador 2', pin: '2027' } ] }
 };
 
 let state = null;
 let blobId = null;
 let isAdmin = false;
+let currentAdminIndex = null;
 let currentType = 'ingreso';
 let monthIndex = MONTHS.indexOf('2026-07');
 
@@ -379,7 +383,12 @@ async function loadState(){
   }
   if(!state.roster) state.roster = { players:[], payments:{}, links:{} };
   if(!state.roster.links) state.roster.links = {};
-  if(!state.adminConfig) state.adminConfig = { pin:'2026', names:['Administrador 1','Administrador 2'] };
+  if(!state.adminConfig || !state.adminConfig.admins){
+    // Migración desde el formato viejo (un solo PIN compartido)
+    const oldPin = (state.adminConfig && state.adminConfig.pin) || '2026';
+    const oldNames = (state.adminConfig && state.adminConfig.names) || ['Administrador 1','Administrador 2'];
+    state.adminConfig = { admins: [ { name: oldNames[0] || 'Administrador 1', pin: oldPin }, { name: oldNames[1] || 'Administrador 2', pin: oldPin } ] };
+  }
 }
 
 async function saveState(){
@@ -454,7 +463,7 @@ function renderAdminUI(){
   const formCard = $('formCard');
 
   if(isAdmin){
-    badge.textContent = 'Modo administrador';
+    badge.textContent = 'Admin: ' + (currentAdminIndex !== null ? state.adminConfig.admins[currentAdminIndex].name : '');
     badge.classList.add('on');
     lockBtn.textContent = 'Salir de modo admin';
     readonlyNote.style.display = 'none';
@@ -462,8 +471,10 @@ function renderAdminUI(){
     addPlayerRow.style.display = 'flex';
     settingsCard.style.display = 'block';
     resetBtn.style.display = 'inline';
-    $('admin1Name').value = state.adminConfig.names[0] || '';
-    $('admin2Name').value = state.adminConfig.names[1] || '';
+    $('admin1Name').value = state.adminConfig.admins[0].name || '';
+    $('admin2Name').value = state.adminConfig.admins[1].name || '';
+    $('admin1Pin').value = '';
+    $('admin2Pin').value = '';
   }else{
     badge.textContent = 'Solo visualización';
     badge.classList.remove('on');
@@ -478,10 +489,11 @@ function renderAdminUI(){
 }
 
 $('lockBtn').addEventListener('click', () => {
-  if(isAdmin){ isAdmin = false; renderAdminUI(); return; }
-  showPrompt({ title:'Acceso administrador', message:'Ingresá el PIN de administrador:', inputType:'password' }, (pin) => {
+  if(isAdmin){ isAdmin = false; currentAdminIndex = null; renderAdminUI(); return; }
+  showPrompt({ title:'Acceso administrador', message:'Ingresá tu PIN de administrador:', inputType:'password' }, (pin) => {
     if(pin === null) return;
-    if(pin === state.adminConfig.pin){ isAdmin = true; renderAdminUI(); }
+    const idx = state.adminConfig.admins.findIndex(a => a.pin === pin);
+    if(idx !== -1){ isAdmin = true; currentAdminIndex = idx; renderAdminUI(); }
     else{ showAlert('PIN incorrecto.'); }
   });
 });
@@ -490,11 +502,14 @@ $('savePinBtn').addEventListener('click', async () => {
   if(!isAdmin) return;
   const n1 = $('admin1Name').value.trim();
   const n2 = $('admin2Name').value.trim();
-  const newPin = $('newPin').value.trim();
-  if(n1) state.adminConfig.names[0] = n1;
-  if(n2) state.adminConfig.names[1] = n2;
-  if(newPin) state.adminConfig.pin = newPin;
-  $('newPin').value = '';
+  const p1 = $('admin1Pin').value.trim();
+  const p2 = $('admin2Pin').value.trim();
+  if(n1) state.adminConfig.admins[0].name = n1;
+  if(n2) state.adminConfig.admins[1].name = n2;
+  if(p1) state.adminConfig.admins[0].pin = p1;
+  if(p2) state.adminConfig.admins[1].pin = p2;
+  $('admin1Pin').value = '';
+  $('admin2Pin').value = '';
   await saveState();
   showAlert('Configuración guardada.');
 });
