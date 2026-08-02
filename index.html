@@ -184,6 +184,7 @@
       </div>
     </div>
     <button class="submit-btn" id="addBtn">Agregar movimiento</button>
+    <button class="submit-btn" id="cancelEditBtn" style="display:none; background:var(--ink-soft); margin-top:8px;">Cancelar edición</button>
   </div>
   <div class="readonly-note" id="readonlyNote" style="display:none;">
     Estás en modo visualización. Solo los administradores pueden cargar movimientos o marcar pagos.
@@ -304,6 +305,7 @@ const DEFAULT_STATE = {
 
 let state = null;
 let isAdmin = false;
+let editingId = null;
 let currentAdminIndex = null;
 let currentType = 'ingreso';
 let monthIndex = MONTHS.indexOf('2026-07');
@@ -424,6 +426,7 @@ function renderAdminUI(){
     resetBtn.style.display = 'none';
   }
   renderRoster();
+  render();
 }
 
 $('lockBtn').addEventListener('click', () => {
@@ -539,6 +542,7 @@ function entryRowHtml(m, hiddenSection){
   const toggleBtn = isAdmin
     ? `<button class="hide-toggle" data-id="${m.id}" title="${hiddenSection ? 'Mostrar' : 'Ocultar'}">${hiddenSection ? '👁️' : '🙈'}</button>`
     : '';
+  const editBtn = isAdmin ? `<button class="edit" data-id="${m.id}" title="Editar">✎</button>` : '';
   const delBtn = isAdmin ? `<button class="del" data-id="${m.id}" title="Eliminar">✕</button>` : '';
   return `
     <div class="entry">
@@ -551,7 +555,7 @@ function entryRowHtml(m, hiddenSection){
           <div class="monto ${m.tipo === 'gasto' ? 'neg' : 'pos'}">${m.tipo === 'gasto' ? '-' : '+'}${fmt(Math.abs(m.monto))} €</div>
           <div class="saldo-tag">saldo: ${fmt(m.saldoTras)} €</div>
         </div>
-        ${toggleBtn}${delBtn}
+        ${toggleBtn}${editBtn}${delBtn}
       </div>
     </div>`;
 }
@@ -583,6 +587,7 @@ function render(){
   }
   lista.querySelectorAll('.del').forEach(btn => btn.addEventListener('click', () => deleteEntry(btn.dataset.id)));
   lista.querySelectorAll('.hide-toggle').forEach(btn => btn.addEventListener('click', () => toggleHidden(btn.dataset.id)));
+  lista.querySelectorAll('.edit').forEach(btn => btn.addEventListener('click', () => startEdit(btn.dataset.id)));
 
   const toggleBtn = $('toggleHiddenBtn');
   const listaOcultos = $('listaOcultos');
@@ -600,6 +605,7 @@ function render(){
       [...ocultos].reverse().map(m => entryRowHtml(m, true)).join('');
     listaOcultos.querySelectorAll('.del').forEach(btn => btn.addEventListener('click', () => deleteEntry(btn.dataset.id)));
     listaOcultos.querySelectorAll('.hide-toggle').forEach(btn => btn.addEventListener('click', () => toggleHidden(btn.dataset.id)));
+    listaOcultos.querySelectorAll('.edit').forEach(btn => btn.addEventListener('click', () => startEdit(btn.dataset.id)));
   }
 }
 
@@ -634,9 +640,42 @@ function escapeHtml(str){
 async function deleteEntry(id){
   if(!isAdmin) return;
   state.movimientos = state.movimientos.filter(m => m.id !== id);
+  if(editingId === id) cancelEdit();
   render();
   await saveState();
 }
+
+function setType(tipo){
+  currentType = tipo;
+  document.querySelectorAll('.type-toggle button').forEach(b => b.classList.toggle('active', b.dataset.type === tipo));
+}
+
+function startEdit(id){
+  if(!isAdmin) return;
+  const mv = state.movimientos.find(m => m.id === id);
+  if(!mv) return;
+  editingId = id;
+  $('concepto').value = mv.concepto || '';
+  $('monto').value = mv.monto;
+  $('fecha').value = mv.fecha || '';
+  setType(mv.tipo === 'gasto' ? 'gasto' : 'ingreso');
+  $('addBtn').textContent = 'Guardar cambios';
+  $('cancelEditBtn').style.display = 'block';
+  $('formCard').scrollIntoView({ behavior:'smooth', block:'start' });
+  $('concepto').focus();
+}
+
+function cancelEdit(){
+  editingId = null;
+  $('concepto').value = '';
+  $('monto').value = '';
+  $('fecha').value = '';
+  setType('ingreso');
+  $('addBtn').textContent = 'Agregar movimiento';
+  $('cancelEditBtn').style.display = 'none';
+}
+
+$('cancelEditBtn').addEventListener('click', cancelEdit);
 
 $('addBtn').addEventListener('click', async () => {
   if(!isAdmin) return;
@@ -645,10 +684,21 @@ $('addBtn').addEventListener('click', async () => {
   const fecha = $('fecha').value || new Date().toISOString().slice(0,10);
   if(!concepto){ $('concepto').focus(); return; }
   if(!montoRaw || montoRaw <= 0){ $('monto').focus(); return; }
-  const entry = { id: 'm-' + Date.now() + '-' + Math.random().toString(36).slice(2,7), fecha, concepto, tipo: currentType, monto: montoRaw };
-  state.movimientos.push(entry);
-  $('concepto').value = '';
-  $('monto').value = '';
+  if(editingId){
+    const mv = state.movimientos.find(m => m.id === editingId);
+    if(mv){
+      mv.concepto = concepto;
+      mv.monto = montoRaw;
+      mv.fecha = fecha;
+      mv.tipo = currentType;
+    }
+    cancelEdit();
+  }else{
+    const entry = { id: 'm-' + Date.now() + '-' + Math.random().toString(36).slice(2,7), fecha, concepto, tipo: currentType, monto: montoRaw };
+    state.movimientos.push(entry);
+    $('concepto').value = '';
+    $('monto').value = '';
+  }
   render();
   await saveState();
 });
