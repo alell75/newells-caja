@@ -132,38 +132,11 @@
   .modal-actions .modal-ok{ background:var(--red); color:var(--cream); }
 
   /* Setup screen (configuración inicial única) */
-  #setupScreen{ display:none; }
-  .setup-card{ background:var(--cream); color:var(--ink); border-radius:var(--radius); padding:22px; box-shadow:var(--shadow); text-align:center; }
-  .setup-card h2{ font-family:'Bebas Neue',sans-serif; font-size:24px; margin:0 0 10px 0; color:var(--black); }
-  .setup-card p{ font-size:14px; color:var(--ink-soft); line-height:1.5; margin-bottom:16px; }
-  .setup-link-box{ background:#fff; border:1.5px solid var(--cream-dim); border-radius:9px; padding:12px; font-size:12.5px; word-break:break-all; margin-bottom:14px; color:var(--ink); text-align:left; }
   .setup-error{ color:#8f2f27; font-size:13px; margin-top:10px; }
 </style>
 </head>
 <body>
 <div class="wrap">
-
-  <!-- Pantalla de configuración inicial: solo se ve una vez, hasta crear el almacenamiento compartido -->
-  <div id="setupScreen">
-    <div class="stripe-deco"></div>
-    <header>
-      <div class="eyebrow">Configuración inicial</div>
-      <h1>NEWELL'S FUENGIROLA</h1>
-      <div class="subtitle">Antes de compartir la app con el equipo, hay que crear el almacenamiento una única vez.</div>
-    </header>
-    <div class="setup-card">
-      <h2 id="setupTitle">Crear almacenamiento compartido</h2>
-      <p id="setupText">Tocá el botón para crear el espacio donde se van a guardar los movimientos y el abono. Esto se hace una sola vez.</p>
-      <button class="submit-btn" id="createStorageBtn">Crear almacenamiento</button>
-      <div id="setupResult" style="display:none;">
-        <p style="margin-top:18px;"><strong>Listo.</strong> Copiá este link exacto y compartilo con el equipo — es el único que hay que usar de ahora en más:</p>
-        <div class="setup-link-box" id="finalLinkBox"></div>
-        <button class="submit-btn" id="copyLinkBtn">Copiar link</button>
-        <button class="submit-btn" id="continueBtn" style="background:var(--red); margin-top:10px;">Continuar a la app</button>
-      </div>
-      <div class="setup-error" id="setupError" style="display:none;"></div>
-    </div>
-  </div>
 
   <!-- App principal -->
   <div id="app" style="display:none;">
@@ -281,10 +254,21 @@
   </div>
 </div>
 
+<script src="https://www.gstatic.com/firebasejs/10.13.2/firebase-app-compat.js"></script>
+<script src="https://www.gstatic.com/firebasejs/10.13.2/firebase-firestore-compat.js"></script>
 <script>
-/* ---------- Almacenamiento externo (jsonblob.com) — no depende de Claude ni requiere login ---------- */
-const API_CREATE = 'https://jsonblob.com/api/jsonBlob';
-const API_BASE = 'https://jsonblob.com/api/jsonBlob/';
+/* ---------- Almacenamiento: Firebase Firestore (documento único compartido por el equipo) ---------- */
+const firebaseConfig = {
+  apiKey: "AIzaSyDdDyDg29JHNvPW6CJFcQK6asfKy3vlyKw",
+  authDomain: "newells-caja.firebaseapp.com",
+  projectId: "newells-caja",
+  storageBucket: "newells-caja.firebasestorage.app",
+  messagingSenderId: "746025830539",
+  appId: "1:746025830539:web:cdb79e0964d1dab93d2c8e"
+};
+firebase.initializeApp(firebaseConfig);
+const db = firebase.firestore();
+const cajaDocRef = db.collection('caja').doc('main');
 
 const MONTHS = ['2026-01','2026-02','2026-03','2026-04','2026-05','2026-06','2026-07','2026-08','2026-09','2026-10','2026-11','2026-12'];
 const MONTH_LABELS = {1:'Enero',2:'Febrero',3:'Marzo',4:'Abril',5:'Mayo',6:'Junio',7:'Julio',8:'Agosto',9:'Septiembre',10:'Octubre',11:'Noviembre',12:'Diciembre'};
@@ -319,7 +303,6 @@ const DEFAULT_STATE = {
 };
 
 let state = null;
-let blobId = null;
 let isAdmin = false;
 let currentAdminIndex = null;
 let currentType = 'ingreso';
@@ -363,18 +346,8 @@ function showAlert(message, title=''){ showModal({ title, message, withInput:fal
 function showConfirm(message, onConfirm, title=''){ showModal({ title, message, withInput:false, onOk:()=>onConfirm(), onCancel:()=>{} }); }
 function showPrompt({title='', message='', inputType='text'}, onSubmit){ showModal({ title, message, withInput:true, inputType, onOk:(val)=>onSubmit(val), onCancel:()=>onSubmit(null) }); }
 
-/* ---------- Bootstrap: leer blobId del link, o mostrar pantalla de configuración inicial ---------- */
-function getBlobIdFromHash(){
-  const m = location.hash.match(/blob=([a-zA-Z0-9-]+)/);
-  return m ? m[1] : null;
-}
-
+/* ---------- Bootstrap ---------- */
 async function boot(){
-  blobId = getBlobIdFromHash();
-  if(!blobId){
-    $('setupScreen').style.display = 'block';
-    return;
-  }
   await loadState();
   $('app').style.display = 'block';
   finishBoot();
@@ -382,11 +355,15 @@ async function boot(){
 
 async function loadState(){
   try{
-    const res = await fetch(API_BASE + blobId, { headers: { 'Accept': 'application/json' } });
-    if(!res.ok) throw new Error('No se encontró el almacenamiento');
-    state = await res.json();
+    const snap = await cajaDocRef.get();
+    if(snap.exists){
+      state = snap.data();
+    }else{
+      state = JSON.parse(JSON.stringify(DEFAULT_STATE));
+      await cajaDocRef.set(state);
+    }
   }catch(e){
-    showAlert('No se pudo conectar con el almacenamiento compartido. Revisá tu conexión a internet y volvé a abrir el link.');
+    showAlert('No se pudo conectar con el almacenamiento compartido. Revisá tu conexión a internet y volvé a abrir la página.');
     state = JSON.parse(JSON.stringify(DEFAULT_STATE));
   }
   if(!state.roster) state.roster = { players:[], payments:{}, links:{} };
@@ -401,58 +378,11 @@ async function loadState(){
 
 async function saveState(){
   try{
-    await fetch(API_BASE + blobId, {
-      method:'PUT',
-      headers:{'Content-Type':'application/json','Accept':'application/json'},
-      body: JSON.stringify(state)
-    });
+    await cajaDocRef.set(state);
   }catch(e){
     showAlert('No se pudo guardar. Revisá tu conexión y probá de nuevo.');
   }
 }
-
-$('createStorageBtn').addEventListener('click', async () => {
-  const btn = $('createStorageBtn');
-  btn.disabled = true;
-  btn.textContent = 'Creando…';
-  $('setupError').style.display = 'none';
-  try{
-    const res = await fetch(API_CREATE, {
-      method:'POST',
-      headers:{'Content-Type':'application/json','Accept':'application/json'},
-      body: JSON.stringify(DEFAULT_STATE)
-    });
-    const loc = res.headers.get('Location') || res.headers.get('location');
-    if(!loc) throw new Error('sin location');
-    const newId = loc.split('/').pop();
-    history.replaceState(null, '', location.pathname + location.search + '#blob=' + newId);
-    blobId = newId;
-    state = JSON.parse(JSON.stringify(DEFAULT_STATE));
-    $('finalLinkBox').textContent = window.location.href;
-    $('setupResult').style.display = 'block';
-    btn.style.display = 'none';
-  }catch(e){
-    btn.disabled = false;
-    btn.textContent = 'Crear almacenamiento';
-    $('setupError').textContent = 'No se pudo crear el almacenamiento. Revisá tu conexión a internet y probá de nuevo.';
-    $('setupError').style.display = 'block';
-  }
-});
-
-$('copyLinkBtn').addEventListener('click', () => {
-  const url = window.location.href;
-  if(navigator.clipboard && navigator.clipboard.writeText){
-    navigator.clipboard.writeText(url).then(() => showAlert('Link copiado.')).catch(() => showAlert('No se pudo copiar. Copiá el link manualmente de arriba.'));
-  }else{
-    showAlert('Copiá el link manualmente de arriba.');
-  }
-});
-
-$('continueBtn').addEventListener('click', () => {
-  $('setupScreen').style.display = 'none';
-  $('app').style.display = 'block';
-  finishBoot();
-});
 
 /* ---------- App principal ---------- */
 function finishBoot(){
