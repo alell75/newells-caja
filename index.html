@@ -205,8 +205,12 @@
 
   <div class="tabpanel" id="tab-abono">
     <div class="roster-card">
-      <h2>Abono mensual — 20 €</h2>
-      <div class="roster-sub">Al marcar a un jugador como pagado, se suma automáticamente 20 € al saldo de la Caja de ese mes.</div>
+      <h2>Abono mensual — <span id="abonoMontoLabel">20</span> €</h2>
+      <div class="roster-sub">Al marcar a un jugador como pagado, se suma automáticamente <span id="abonoMontoLabel2">20</span> € al saldo de la Caja de ese mes.</div>
+      <div class="add-player" id="abonoEditRow" style="display:none;">
+        <input type="number" id="abonoMontoInput" min="0" step="0.5" placeholder="Monto del abono" />
+        <button type="button" id="saveAbonoBtn">Guardar</button>
+      </div>
       <div class="month-nav">
         <button type="button" id="prevMonth">‹</button>
         <div class="current-month" id="currentMonthLabel">—</div>
@@ -238,7 +242,7 @@
 
   <div class="notice">
     Los datos se guardan en un almacenamiento compartido externo: cualquiera con el link los ve, sin necesidad de cuenta de Claude. Solo los administradores (con PIN) pueden cargar movimientos o marcar pagos.<br/>
-    Saldo inicial: 251 € trasladado del Excel al 22/06. Abono: 20 €/mes por jugador.
+    Saldo inicial: 251 € trasladado del Excel al 22/06. Abono: <span id="noticeAbonoMonto">20</span> €/mes por jugador.
   </div>
   </div>
 </div>
@@ -298,7 +302,8 @@ const DEFAULT_STATE = {
       'Toto':   {'2026-01':true, '2026-02':true, '2026-03':null,'2026-04':true,'2026-05':true,'2026-06':true},
       'Pepe':   {'2026-01':null, '2026-02':null, '2026-03':null,'2026-04':true,'2026-05':true,'2026-06':true}
     },
-    links: {}
+    links: {},
+    abonoMonto: 20
   },
   adminConfig: { admins: [ { name: 'Administrador 1', pin: '2026' }, { name: 'Administrador 2', pin: '2027' } ] }
 };
@@ -370,6 +375,7 @@ async function loadState(){
   }
   if(!state.roster) state.roster = { players:[], payments:{}, links:{} };
   if(!state.roster.links) state.roster.links = {};
+  if(!state.roster.abonoMonto) state.roster.abonoMonto = 20;
   if(!state.adminConfig || !state.adminConfig.admins){
     // Migración desde el formato viejo (un solo PIN compartido)
     const oldPin = (state.adminConfig && state.adminConfig.pin) || '2026';
@@ -401,6 +407,7 @@ function renderAdminUI(){
   const settingsCard = $('settingsCard');
   const resetBtn = $('resetBtn');
   const formCard = $('formCard');
+  const abonoEditRow = $('abonoEditRow');
 
   if(isAdmin){
     badge.textContent = 'Admin: ' + (currentAdminIndex !== null ? state.adminConfig.admins[currentAdminIndex].name : '');
@@ -411,6 +418,8 @@ function renderAdminUI(){
     addPlayerRow.style.display = 'flex';
     settingsCard.style.display = 'block';
     resetBtn.style.display = 'inline';
+    abonoEditRow.style.display = 'flex';
+    $('abonoMontoInput').value = state.roster.abonoMonto || 20;
     $('admin1Name').value = state.adminConfig.admins[0].name || '';
     $('admin2Name').value = state.adminConfig.admins[1].name || '';
     $('admin1Pin').value = '';
@@ -424,6 +433,7 @@ function renderAdminUI(){
     addPlayerRow.style.display = 'none';
     settingsCard.style.display = 'none';
     resetBtn.style.display = 'none';
+    abonoEditRow.style.display = 'none';
   }
   renderRoster();
   render();
@@ -460,6 +470,11 @@ function renderRoster(){
   const [y,m] = monthKey.split('-');
   $('currentMonthLabel').textContent = MONTH_LABELS[parseInt(m,10)] + ' ' + y;
 
+  const abonoMonto = state.roster.abonoMonto || 20;
+  $('abonoMontoLabel').textContent = fmt(abonoMonto);
+  $('abonoMontoLabel2').textContent = fmt(abonoMonto);
+  $('noticeAbonoMonto').textContent = fmt(abonoMonto);
+
   const list = $('quickList');
   if(state.roster.players.length === 0){
     list.innerHTML = '<div class="empty">Todavía no hay jugadores cargados.</div>';
@@ -486,7 +501,7 @@ function renderRoster(){
   }).join('');
 
   $('monthProgress').textContent = applicable > 0
-    ? `${paidCount} de ${applicable} pagaron el abono este mes (${paidCount * 20} € de ${applicable * 20} €)`
+    ? `${paidCount} de ${applicable} pagaron el abono este mes (${fmt(paidCount * abonoMonto)} € de ${fmt(applicable * abonoMonto)} €)`
     : 'Ningún jugador tiene el abono activo este mes.';
 
   if(isAdmin){
@@ -517,7 +532,7 @@ async function cyclePayment(name){
       fecha: monthKey + '-01',
       concepto: `Abono ${name} (${MONTH_LABELS[parseInt(m,10)]})`,
       tipo: 'ingreso',
-      monto: 20
+      monto: state.roster.abonoMonto || 20
     };
     state.movimientos.push(newMv);
     state.roster.links[name][monthKey] = newMv.id;
@@ -731,6 +746,16 @@ document.querySelectorAll('.tab-btn').forEach(btn => {
 
 $('prevMonth').addEventListener('click', () => { if(monthIndex > 0){ monthIndex--; renderRoster(); } });
 $('nextMonth').addEventListener('click', () => { if(monthIndex < MONTHS.length - 1){ monthIndex++; renderRoster(); } });
+
+$('saveAbonoBtn').addEventListener('click', async () => {
+  if(!isAdmin) return;
+  const val = parseFloat($('abonoMontoInput').value);
+  if(!val || val <= 0){ $('abonoMontoInput').focus(); return; }
+  state.roster.abonoMonto = val;
+  renderRoster();
+  await saveState();
+  showAlert('Monto del abono actualizado a ' + fmt(val) + ' €. Los pagos ya marcados no cambian, solo los nuevos.');
+});
 
 $('addPlayerBtn').addEventListener('click', async () => {
   if(!isAdmin) return;
